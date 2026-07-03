@@ -4,6 +4,7 @@ from io import BytesIO
 from PIL import Image
 from google import genai
 import folium
+from folium.plugins import HeatMap
 from streamlit_folium import st_folium
 import pandas as pd
 
@@ -23,72 +24,50 @@ st.sidebar.header("⚙️ Parameters")
 business_type = st.sidebar.selectbox("Business Type", ["cafe", "restaurant", "grocery store", "gym", "laundry"])
 radius = st.sidebar.slider("Search Radius (Meters)", min_value=100, max_value=2000, value=500, step=100)
 
-# Initialize Session States
+# Map Visualization Layers Control Panel
+st.sidebar.header("🎨 Map Layers")
+map_view_type = st.sidebar.radio("Competitor Overlay Style", ["Glowing Heatmap Cluster", "Individual Pin Markers", "Hide Overlays"])
+
+# Initialize Essential Session States
 if "lat" not in st.session_state:
     st.session_state.lat = 40.7128
 if "lng" not in st.session_state:
     st.session_state.lng = -74.0060
 if "analysis_results" not in st.session_state:
     st.session_state.analysis_results = None
-
-# NEW: Vault to store benchmarking/comparison items
 if "benchmarked_sites" not in st.session_state:
     st.session_state.benchmarked_sites = []
 
-# ==========================================
-# INTERACTIVE MAP INPUT SECTION
-# ==========================================
-st.subheader("🗺️ 1. Select Your Target Location")
-st.write("Click anywhere on the map below to drop a pin on your target business location.")
-
-m = folium.Map(location=[st.session_state.lat, st.session_state.lng], zoom_start=14)
-folium.Marker(
-    [st.session_state.lat, st.session_state.lng], 
-    tooltip="Target Site", 
-    icon=folium.Icon(color="red", icon="info-sign")
-).add_to(m)
-
-map_data = st_folium(
-    m,
-    height=400,
-    width=None,
-    use_container_width=True,
-    returned_objects=["last_clicked"],
-    key="interactive_map_v4"
-)
-
-if map_data and map_data.get("last_clicked"):
-    click_lat = round(map_data["last_clicked"]["lat"], 6)
-    click_lng = round(map_data["last_clicked"]["lng"], 6)
-    
-    if click_lat != st.session_state.lat or click_lng != st.session_state.lng:
-        st.session_state.lat = click_lat
-        st.session_state.lng = click_lng
-        st.rerun()
-
-col1, col2 = st.columns(2)
-with col1:
-    st.number_input("Selected Latitude", format="%.6f", key="lat")
-with col2:
-    st.number_input("Selected Longitude", format="%.6f", key="lng")
-
+# NEW: Keep competitor geometry points cached to render live overlays dynamically
+if "cached_competitor_coords" not in st.session_state:
+    st.session_state.cached_competitor_coords = []
 
 # ==========================================
-# HELPER FUNCTIONS
+# EXTRACTION HELPER FUNCTIONS
 # ==========================================
-def get_competitor_count(lat, lng, biz_type, radius, key):
+def get_competitor_details(lat, lng, biz_type, radius, key):
+    """Fetches up to 20 competitors including names and exact geographic coordinates."""
     url = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
     params = {"location": f"{lat},{lng}", "radius": radius, "keyword": biz_type, "key": key}
     try:
         response = requests.get(url, params=params).json()
         if "error_message" in response:
             st.error(f"Google Places Error: {response['error_message']}")
-            return 0, []
+            return 0, [], []
+        
         results = response.get("results", [])
-        return len(results), [r.get("name") for r in results[:5]]
+        
+        names = [r.get("name") for r in results[:5]]
+        coords = []
+        for r in results:
+            loc = r.get("geometry", {}).get("location", {})
+            if loc.get("lat") and loc.get("lng"):
+                coords.append([loc["lat"], loc["lng"]])
+                
+        return len(results), names, coords
     except Exception as e:
         st.error(f"Error fetching Places data: {e}")
-        return 0, []
+        return 0, [], []
 
 def get_satellite_image(lat, lng, key):
     url = "https://maps.googleapis.com/maps/api/staticmap"
@@ -144,6 +123,80 @@ def analyze_feasibility(image, comp_count, comp_names, biz_type, rad, g_key):
         return None
 
 # ==========================================
+# INTERACTIVE MAP INPUT SECTION
+# ==========================================
+st.subheader("🗺️ 1. Select Your Target Location")
+st.write("Click anywhere on the map below to drop a pin. Competitor maps update dynamically when you run the feasibility analysis.")
+
+# Build the map object dynamically from current session state
+m = folium.Map(location=[st.session_state.lat, st.session_state.lng], zoom_start=14)
+
+# Draw radius boundary circle layout helper
+folium.Circle(
+    radius=radius,
+    location=[st.session_state.lat, st.session_state.lng],
+    color="blue",
+    fill=True,
+    fill_opacity=0.08,
+    weight=1
+).add_to(m)
+
+# Target pinpoint marker layout configuration
+folium.Marker(
+    [st.session_state.lat, st.session_state.lng], 
+    tooltip="Target Site Selection", 
+    icon=folium.Icon(color="red", icon="info-sign")
+).add_to(m)
+
+# ------------------------------------------
+# PROCESS DYNAMIC ADVANCED MAP LAYERS
+# ------------------------------------------
+if st.session_state.cached_competitor_coords and map_view_type != "Hide Overlays":
+    if map_view_type == "Glowing Heatmap Cluster":
+        # Generate the dynamic competition overlay density heatmap
+        HeatMap(st.session_state.cached_competitor_coords, radius=25, blur=15, min_opacity=0.4).add_to(m)
+    elif map_view_type == "Individual Pin Markers":
+        # Draw detailed separate markers
+        for coord in st.session_state.cached_competitor_coords:
+            folium.CircleMarker(
+                location=coord,
+                radius=6,
+                color="orange",
+                fill=True,
+                fill_color="yellow",
+                fill_opacity=0.7,
+                tooltip=f"Nearby {business_type.capitalize()}"
+            ).add_to(m)
+
+# Render core interactive canvas
+map_data = st_folium(
+    m,
+    height=450,
+    width=None,
+    use_container_width=True,
+    returned_objects=["last_clicked"],
+    key="interactive_map_final"
+)
+
+if map_data and map_data.get("last_clicked"):
+    click_lat = round(map_data["last_clicked"]["lat"], 6)
+    click_lng = round(map_data["last_clicked"]["lng"], 6)
+    
+    if click_lat != st.session_state.lat or click_lng != st.session_state.lng:
+        st.session_state.lat = click_lat
+        st.session_state.lng = click_lng
+        # Clear old geometry points when target moves to prevent invalid overlay rendering
+        st.session_state.cached_competitor_coords = [] 
+        st.rerun()
+
+# Text layout coordinate data entry blocks
+col1, col2 = st.columns(2)
+with col1:
+    st.number_input("Selected Latitude", format="%.6f", key="lat")
+with col2:
+    st.number_input("Selected Longitude", format="%.6f", key="lng")
+
+# ==========================================
 # TRIGGER RUN
 # ==========================================
 st.write("---")
@@ -151,14 +204,21 @@ if st.button("🚀 Run Feasibility Analysis", type="primary", use_container_widt
     if not google_maps_key or not gemini_key:
         st.warning("Please enter both API keys in the sidebar to proceed.")
     else:
-        with st.spinner("Fetching map data and running AI analysis..."):
-            comp_count, comp_names = get_competitor_count(st.session_state.lat, st.session_state.lng, business_type, radius, google_maps_key)
+        with st.spinner("Fetching map layers and running AI model analysis..."):
+            
+            # Upgraded call pulls down positional arrays alongside metric targets
+            comp_count, comp_names, comp_coords = get_competitor_details(
+                st.session_state.lat, st.session_state.lng, business_type, radius, google_maps_key
+            )
+            
+            # Cache coordinate parameters into state vault for folium layer redraw access
+            st.session_state.cached_competitor_coords = comp_coords
+            
             sat_img = get_satellite_image(st.session_state.lat, st.session_state.lng, google_maps_key)
             
             if sat_img:
                 report = analyze_feasibility(sat_img, comp_count, comp_names, business_type, radius, gemini_key)
                 
-                # Parse out structured fields for comparison metrics
                 rating = "Unknown"
                 flag = "None highlighted"
                 for line in report.split("\n"):
@@ -178,6 +238,7 @@ if st.button("🚀 Run Feasibility Analysis", type="primary", use_container_widt
                     "rating": rating,
                     "flag": flag
                 }
+                st.rerun()
             else:
                 st.error("Could not generate AI report because the satellite imagery failed to load.")
 
@@ -187,14 +248,12 @@ if st.button("🚀 Run Feasibility Analysis", type="primary", use_container_widt
 if st.session_state.analysis_results:
     res = st.session_state.analysis_results
     
-    # Vault Benchmarking Interaction Header
     save_col1, save_col2 = st.columns([3, 1])
     with save_col1:
         site_name_input = st.text_input("🏷️ Give this site a name to save it:", value=f"Site ({res['lat']}, {res['lng']})")
     with save_col2:
-        st.write("##") # padding
+        st.write("##") 
         if st.button("📥 Save to Benchmarks", use_container_width=True):
-            # Prevent duplicate names
             if any(site['name'] == site_name_input for site in st.session_state.benchmarked_sites):
                 st.warning("A site with this name already exists in your benchmarking deck.")
             else:
@@ -224,7 +283,6 @@ if st.session_state.analysis_results:
     with layout_col2:
         st.subheader("🤖 AI Feasibility Report")
         if res["report"]:
-            # Clean up hidden raw metrics output so user text looks seamless
             clean_report = res["report"].replace(f"[RATING]: {res['rating']}", "").replace(f"[FLAG]: {res['flag']}", "").strip()
             st.markdown(clean_report)
 
@@ -234,17 +292,12 @@ if st.session_state.analysis_results:
 if st.session_state.benchmarked_sites:
     st.write("---")
     st.header("📊 A/B Testing & Comparison Dashboard")
-    st.write("Review and compare all saved locations side-by-side.")
     
-    # Build tabular matrix from the structural arrays stored inside state vault
     df_compare = pd.DataFrame(st.session_state.benchmarked_sites)
-    
-    # Pivot the frame so properties run vertically as metrics rows
     df_compare = df_compare.set_index("name").T
-    
-    # Render neat custom table presentation layout
     st.dataframe(df_compare, use_container_width=True)
     
     if st.button("🗑️ Clear Dashboard Deck", type="secondary"):
         st.session_state.benchmarked_sites = []
+        st.session_state.cached_competitor_coords = []
         st.rerun()
