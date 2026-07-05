@@ -23,19 +23,104 @@ else:
     st.stop()
 
 # ==========================================
-# PAGE CONFIG & SETUP
+# PAGE CONFIG & BRANDING SETUP
 # ==========================================
-st.set_page_config(page_title="Geo-Business Feasibility Tool", layout="wide")
+st.set_page_config(
+    page_title="Geo-Business Feasibility Tool", 
+    page_icon="🗺️",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
+
+# Custom Elegant CSS Injection for Styling (Optimized for Dark Theme Contrast)
+# Custom Elegant CSS Injection (Midnight Blue & Vibrant Teal Aesthetic)
+st.markdown("""
+    <style>
+        /* Main Application Base Foundation Overrides */
+        .stApp {
+            background-color: #0b111e !important;
+        }
+        .block-container { 
+            padding-top: 2rem; 
+            padding-bottom: 2rem; 
+        }
+        
+        /* Sidebar Restyling Container */
+        section[data-testid="stSidebar"] {
+            background-color: #0d1527 !important;
+            border-right: 1px solid #1e2d4a;
+        }
+
+        /* Metric Cards: Crisp Slate Grey with High-Contrast Text Layout */
+        .stMetric { 
+            background-color: #162238 !important; 
+            padding: 18px !important; 
+            border-radius: 12px !important; 
+            border: 1px solid #223454 !important;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+        }
+        .stMetric label {
+            color: #8da2fb !important;
+            font-weight: 600 !important;
+            letter-spacing: 0.5px;
+        }
+        div[data-testid="stMetricValue"] {
+            color: #00f2fe !important;
+            font-weight: 700 !important;
+        }
+        
+        /* Expander Containers: Seamless Indigo-Blue Structural Cards */
+        div[data-testid="stExpander"] { 
+            background-color: #131d31 !important; 
+            border-radius: 10px !important; 
+            border: 1px solid #1e2d4a !important;
+            box-shadow: 0 4px 10px rgba(0,0,0,0.1);
+        }
+        div[data-testid="stExpander"] summary {
+            font-weight: 600 !important;
+            color: #ffffff !important;
+        }
+        div[data-testid="stExpander"] p, div[data-testid="stExpander"] label {
+            color: #e2e8f0 !important;
+        }
+
+        /* Typography Global Structural Controls */
+        h1, h2, h3, h4, h5, h6 {
+            color: #ffffff !important;
+        }
+        p, span, li {
+            color: #cbd5e1 !important;
+        }
+
+        /* Native Streamlit Container Visual Blocks */
+        div[data-testid="element-container"] div[data-theme="light"] {
+            background-color: #131d31 !important;
+            border: 1px solid #1e2d4a !important;
+        }
+    </style>
+""", unsafe_allow_html=True)
+
+# Main Dashboard Header Block
 st.title("🗺️ AI-Powered Business Feasibility Analyzer")
-st.write("Determine the business potential of any location using live data and satellite imagery.")
+st.markdown("##### *Transforming spatial geographic data into executive site-selection decisions.*")
+st.write("Drop a target pin anywhere on the world map to dynamically calculate competitor cluster densities, extract environmental context via satellite intelligence, and receive structured AI risk reports.")
 
-# Sidebar Parameters Setup
-st.sidebar.header("⚙️ Parameters")
-business_type = st.sidebar.selectbox("Business Type", ["cafe", "restaurant", "grocery store", "gym", "laundry"])
-radius = st.sidebar.slider("Search Radius (Meters)", min_value=100, max_value=2000, value=500, step=100)
+# ==========================================
+# SIDEBAR CONTROL RIG
+# ==========================================
+st.sidebar.image("https://img.icons8.com/fluent/96/000000/map-marker.png", width=60)
+st.sidebar.markdown("### **Control Console**")
+st.sidebar.write("Configure your dynamic simulation rules below.")
 
-st.sidebar.header("🎨 Map Layers")
-map_view_type = st.sidebar.radio("Competitor Overlay Style", ["Glowing Heatmap Cluster", "Individual Pin Markers", "Hide Overlays"])
+with st.sidebar.expander("🎯 Target Configuration", expanded=True):
+    business_type = st.selectbox("Target Business Type", ["cafe", "restaurant", "grocery store", "gym", "laundry"])
+    radius = st.slider("Search Boundary Radius (M)", min_value=100, max_value=2000, value=500, step=100)
+
+with st.sidebar.expander("🎨 Map Visualization Layers", expanded=True):
+    map_view_type = st.radio("Competitor Overlay Style", ["Glowing Heatmap Cluster", "Individual Pin Markers", "Hide Overlays"])
+
+st.sidebar.markdown("---")
+st.sidebar.caption("⚡ Powered by Google Maps & Gemini 2.5 Flash")
 
 # Initialize Essential Session States
 if "lat" not in st.session_state:
@@ -128,30 +213,29 @@ def analyze_feasibility(image, comp_count, comp_names, biz_type, rad, g_key):
         return None
 
 # ==========================================
-# INTERACTIVE MAP INPUT SECTION
+# INTERACTIVE MAP CANVAS SECTION
 # ==========================================
-st.subheader("🗺️ 1. Select Your Target Location")
-st.write("Click anywhere on the map below to drop a pin. Then click the Analysis button below.")
+st.markdown("### 📍 Geographic Pinpoint")
+st.write("Navigate the map canvas below and drop your target site marker. The framework handles dynamic state redraws automatically.")
 
-# Dynamically construct map based directly on master session coordinates
 m = folium.Map(location=[st.session_state.lat, st.session_state.lng], zoom_start=14)
 
 folium.Circle(
     radius=radius,
     location=[st.session_state.lat, st.session_state.lng],
-    color="blue",
+    color="#1E88E5",
     fill=True,
     fill_opacity=0.08,
-    weight=1
+    weight=1.5
 ).add_to(m)
 
 folium.Marker(
     [st.session_state.lat, st.session_state.lng], 
-    tooltip="Target Site Selection", 
-    icon=folium.Icon(color="red", icon="info-sign")
+    tooltip="Target Location Center", 
+    icon=folium.Icon(color="red", icon="screenshot", prefix="fa")
 ).add_to(m)
 
-# Process Overlays
+# Process Dynamic Overlay Generation
 if st.session_state.cached_competitor_coords and map_view_type != "Hide Overlays":
     if map_view_type == "Glowing Heatmap Cluster":
         HeatMap(st.session_state.cached_competitor_coords, radius=25, blur=15, min_opacity=0.4).add_to(m)
@@ -160,17 +244,17 @@ if st.session_state.cached_competitor_coords and map_view_type != "Hide Overlays
             folium.CircleMarker(
                 location=coord,
                 radius=6,
-                color="orange",
+                color="#FB8C00",
                 fill=True,
-                fill_color="yellow",
-                fill_opacity=0.7,
-                tooltip=f"Nearby {business_type.capitalize()}"
+                fill_color="#FFB300",
+                fill_opacity=0.8,
+                tooltip=f"Competitor Area Location"
             ).add_to(m)
 
-# Render core interactive canvas forcing exact center bounds matching master states
+# Render main canvas element
 map_data = st_folium(
     m,
-    height=450,
+    height=480,
     width=None,
     use_container_width=True,
     center=[st.session_state.lat, st.session_state.lng],
@@ -178,7 +262,7 @@ map_data = st_folium(
     key="interactive_map_final"
 )
 
-# Detect if map click changed and override text boxes instantly
+# Intercept and synchronize new target selection positions
 if map_data and map_data.get("last_clicked"):
     click_lat = round(map_data["last_clicked"]["lat"], 6)
     click_lng = round(map_data["last_clicked"]["lng"], 6)
@@ -190,19 +274,17 @@ if map_data and map_data.get("last_clicked"):
         st.session_state.analysis_results = None 
         st.rerun()
 
-# Text inputs tied DIRECTLY to master keys - removes conflicting callbacks
-col1, col2 = st.columns(2)
-with col1:
-    st.number_input("Selected Latitude", format="%.6f", key="lat")
-with col2:
-    st.number_input("Selected Longitude", format="%.6f", key="lng")
+# Refined Coordination Entry Panel Layout
+col_coord1, col_coord2 = st.columns(2)
+with col_coord1:
+    st.number_input("Selected Site Latitude", format="%.6f", key="lat")
+with col_coord2:
+    st.number_input("Selected Site Longitude", format="%.6f", key="lng")
 
-# ==========================================
-# TRIGGER RUN
-# ==========================================
-st.write("---")
-if st.button("🚀 Run Feasibility Analysis", type="primary", use_container_width=True):
-    with st.spinner("Fetching map layers and running AI model analysis..."):
+# Execution Anchor System Action Button
+st.write(" ")
+if st.button("🚀 Run Comprehensive Feasibility Analysis", type="primary", use_container_width=True):
+    with st.spinner("Compiling structural GIS analytics and generating AI context report..."):
         comp_count, comp_names, comp_coords = get_competitor_details(
             st.session_state.lat, st.session_state.lng, business_type, radius, google_maps_key
         )
@@ -234,64 +316,83 @@ if st.button("🚀 Run Feasibility Analysis", type="primary", use_container_widt
             }
             st.rerun()
         else:
-            st.error("Could not generate AI report because the satellite imagery failed to load.")
+            st.error("Engine Timeout: Satellite matrix acquisition failed.")
 
 # ==========================================
-# RENDER CURRENT ANALYSIS & SAVE INTERACTION
+# RENDER REPORT ENGINE CARDS
 # ==========================================
 if st.session_state.analysis_results:
     res = st.session_state.analysis_results
+    st.write("---")
     
-    save_col1, save_col2 = st.columns([3, 1])
+    # Save Action Sub-Header System Card
+    save_box = st.container()
+    save_col1, save_col2 = save_box.columns([3, 1])
     with save_col1:
-        site_name_input = st.text_input("🏷️ Give this site a name to save it:", value=f"Site ({res['lat']}, {res['lng']})")
+        site_name_input = st.text_input("🏷️ Benchmarking Tag", value=f"Site ({res['lat']}, {res['lng']})", help="Give this site a custom name to review it inside the cross-comparison dashboard below.")
     with save_col2:
         st.write("##") 
-        if st.button("📥 Save to Benchmarks", use_container_width=True):
+        if st.button("📥 Save Site to Dashboard", use_container_width=True):
             if any(site['name'] == site_name_input for site in st.session_state.benchmarked_sites):
-                st.warning("A site with this name already exists in your benchmarking deck.")
+                st.warning("Tag Collision: A location already exists with that label name.")
             else:
                 st.session_state.benchmarked_sites.append({
                     "name": site_name_input,
                     "lat_lng": f"{res['lat']}, {res['lng']}",
-                    "biz_type": res["biz_type"],
-                    "comp_count": f"{res['comp_count']} stores",
+                    "biz_type": res["biz_type"].capitalize(),
+                    "comp_count": f"{res['comp_count']} Units",
                     "rating": res["rating"],
                     "flag": res["flag"]
                 })
-                st.success(f"Saved '{site_name_input}' to Dashboard!")
+                st.success(f"Site '{site_name_input}' added successfully!")
                 st.rerun()
 
-    st.write("---")
-    layout_col1, layout_col2 = st.columns([1, 1])
+    st.write(" ")
+    layout_col1, layout_col2 = st.columns([1, 1.2], gap="large")
     
     with layout_col1:
-        st.subheader("📍 Visual Data Capture")
+        st.markdown("### 📊 Local Environment Captures")
         if res["sat_img"]:
-            st.image(res["sat_img"], caption="Google Earth Satellite View (Analyzed Image)", use_container_width=True)
+            st.image(res["sat_img"], caption="Processed high-res Earth Observation Matrix Center", use_container_width=True)
         
-        st.metric(label="Competitor Density", value=f"{res['comp_count']} {res['biz_type']}(s)")
+        # Micro Metric Grid Cards Layout
+        m_col1, m_col2 = st.columns(2)
+        with m_col1:
+            st.metric(label="Competitor Count", value=res['comp_count'])
+        with m_col2:
+            st.metric(label="Feasibility Status", value=res['rating'])
+            
         if res["comp_names"]:
-            st.write("**Nearby Competitors:**", ", ".join(res["comp_names"]))
+            with st.expander("🔍 Identified Competitor Brands", expanded=True):
+                st.write(", ".join(res["comp_names"]))
     
     with layout_col2:
-        st.subheader("🤖 AI Feasibility Report")
+        st.markdown("### 🤖 Computer-Vision Feasibility Insights")
         if res["report"]:
             clean_report = res["report"].replace(f"[RATING]: {res['rating']}", "").replace(f"[FLAG]: {res['flag']}", "").strip()
-            st.markdown(clean_report)
+            # Clean native card container
+            with st.container(border=True):
+                st.markdown(clean_report)
 
 # ==========================================
-# BENCHMARKING DASHBOARD SECTION
+# EXECUTIVE CROSS-BENCHMARK DECK SECTION
 # ==========================================
 if st.session_state.benchmarked_sites:
     st.write("---")
-    st.header("📊 A/B Testing & Comparison Dashboard")
+    st.markdown("### 📊 Side-by-Side Executive Benchmarking")
+    st.write("Compare saved geographic options side-by-side to optimize site prioritization and deployment strategies.")
     
     df_compare = pd.DataFrame(st.session_state.benchmarked_sites)
     df_compare = df_compare.set_index("name").T
-    st.dataframe(df_compare, use_container_width=True)
     
-    if st.button("🗑️ Clear Dashboard Deck", type="secondary"):
+    # Styled matrix layout display block configuration
+    st.dataframe(
+        df_compare, 
+        use_container_width=True,
+        column_config={"name": st.column_config.Column(width="medium")}
+    )
+    
+    if st.button("🗑️ Clear Benchmarking Dashboard", type="secondary", use_container_width=True):
         st.session_state.benchmarked_sites = []
         st.session_state.cached_competitor_coords = []
         st.rerun()
