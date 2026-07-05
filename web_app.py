@@ -7,6 +7,20 @@ import folium
 from folium.plugins import HeatMap
 from streamlit_folium import st_folium
 import pandas as pd
+import os
+
+# ==========================================
+# SECRETS LOADING (HYBRID PATTERN)
+# ==========================================
+if "GOOGLE_MAPS_KEY" in os.environ and "GEMINI_KEY" in os.environ:
+    google_maps_key = os.environ.get("GOOGLE_MAPS_KEY")
+    gemini_key = os.environ.get("GEMINI_KEY")
+elif "GOOGLE_MAPS_KEY" in st.secrets and "GEMINI_KEY" in st.secrets:
+    google_maps_key = st.secrets["GOOGLE_MAPS_KEY"]
+    gemini_key = st.secrets["GEMINI_KEY"]
+else:
+    st.error("🔒 Security Error: API credentials could not be loaded from the environment.")
+    st.stop()
 
 # ==========================================
 # PAGE CONFIG & SETUP
@@ -15,16 +29,11 @@ st.set_page_config(page_title="Geo-Business Feasibility Tool", layout="wide")
 st.title("🗺️ AI-Powered Business Feasibility Analyzer")
 st.write("Determine the business potential of any location using live data and satellite imagery.")
 
-# Sidebar for API Keys and Settings
-st.sidebar.header("🔑 API Credentials")
-google_maps_key = st.sidebar.text_input("Google Maps API Key", type="password")
-gemini_key = st.sidebar.text_input("Gemini API Key", type="password")
-
+# Sidebar Parameters Setup
 st.sidebar.header("⚙️ Parameters")
 business_type = st.sidebar.selectbox("Business Type", ["cafe", "restaurant", "grocery store", "gym", "laundry"])
 radius = st.sidebar.slider("Search Radius (Meters)", min_value=100, max_value=2000, value=500, step=100)
 
-# Map Visualization Layers Control Panel
 st.sidebar.header("🎨 Map Layers")
 map_view_type = st.sidebar.radio("Competitor Overlay Style", ["Glowing Heatmap Cluster", "Individual Pin Markers", "Hide Overlays"])
 
@@ -37,8 +46,6 @@ if "analysis_results" not in st.session_state:
     st.session_state.analysis_results = None
 if "benchmarked_sites" not in st.session_state:
     st.session_state.benchmarked_sites = []
-
-# NEW: Keep competitor geometry points cached to render live overlays dynamically
 if "cached_competitor_coords" not in st.session_state:
     st.session_state.cached_competitor_coords = []
 
@@ -46,7 +53,6 @@ if "cached_competitor_coords" not in st.session_state:
 # EXTRACTION HELPER FUNCTIONS
 # ==========================================
 def get_competitor_details(lat, lng, biz_type, radius, key):
-    """Fetches up to 20 competitors including names and exact geographic coordinates."""
     url = "https://maps.googleapis.com/maps/api/place/nearbysearch/json"
     params = {"location": f"{lat},{lng}", "radius": radius, "keyword": biz_type, "key": key}
     try:
@@ -56,7 +62,6 @@ def get_competitor_details(lat, lng, biz_type, radius, key):
             return 0, [], []
         
         results = response.get("results", [])
-        
         names = [r.get("name") for r in results[:5]]
         coords = []
         for r in results:
@@ -126,12 +131,11 @@ def analyze_feasibility(image, comp_count, comp_names, biz_type, rad, g_key):
 # INTERACTIVE MAP INPUT SECTION
 # ==========================================
 st.subheader("🗺️ 1. Select Your Target Location")
-st.write("Click anywhere on the map below to drop a pin. Competitor maps update dynamically when you run the feasibility analysis.")
+st.write("Click anywhere on the map below to drop a pin. Then click the Analysis button below.")
 
-# Build the map object dynamically from current session state
+# Dynamically construct map based directly on master session coordinates
 m = folium.Map(location=[st.session_state.lat, st.session_state.lng], zoom_start=14)
 
-# Draw radius boundary circle layout helper
 folium.Circle(
     radius=radius,
     location=[st.session_state.lat, st.session_state.lng],
@@ -141,22 +145,17 @@ folium.Circle(
     weight=1
 ).add_to(m)
 
-# Target pinpoint marker layout configuration
 folium.Marker(
     [st.session_state.lat, st.session_state.lng], 
     tooltip="Target Site Selection", 
     icon=folium.Icon(color="red", icon="info-sign")
 ).add_to(m)
 
-# ------------------------------------------
-# PROCESS DYNAMIC ADVANCED MAP LAYERS
-# ------------------------------------------
+# Process Overlays
 if st.session_state.cached_competitor_coords and map_view_type != "Hide Overlays":
     if map_view_type == "Glowing Heatmap Cluster":
-        # Generate the dynamic competition overlay density heatmap
         HeatMap(st.session_state.cached_competitor_coords, radius=25, blur=15, min_opacity=0.4).add_to(m)
     elif map_view_type == "Individual Pin Markers":
-        # Draw detailed separate markers
         for coord in st.session_state.cached_competitor_coords:
             folium.CircleMarker(
                 location=coord,
@@ -168,16 +167,18 @@ if st.session_state.cached_competitor_coords and map_view_type != "Hide Overlays
                 tooltip=f"Nearby {business_type.capitalize()}"
             ).add_to(m)
 
-# Render core interactive canvas
+# Render core interactive canvas forcing exact center bounds matching master states
 map_data = st_folium(
     m,
     height=450,
     width=None,
     use_container_width=True,
+    center=[st.session_state.lat, st.session_state.lng],
     returned_objects=["last_clicked"],
     key="interactive_map_final"
 )
 
+# Detect if map click changed and override text boxes instantly
 if map_data and map_data.get("last_clicked"):
     click_lat = round(map_data["last_clicked"]["lat"], 6)
     click_lng = round(map_data["last_clicked"]["lng"], 6)
@@ -185,11 +186,11 @@ if map_data and map_data.get("last_clicked"):
     if click_lat != st.session_state.lat or click_lng != st.session_state.lng:
         st.session_state.lat = click_lat
         st.session_state.lng = click_lng
-        # Clear old geometry points when target moves to prevent invalid overlay rendering
         st.session_state.cached_competitor_coords = [] 
+        st.session_state.analysis_results = None 
         st.rerun()
 
-# Text layout coordinate data entry blocks
+# Text inputs tied DIRECTLY to master keys - removes conflicting callbacks
 col1, col2 = st.columns(2)
 with col1:
     st.number_input("Selected Latitude", format="%.6f", key="lat")
@@ -201,46 +202,39 @@ with col2:
 # ==========================================
 st.write("---")
 if st.button("🚀 Run Feasibility Analysis", type="primary", use_container_width=True):
-    if not google_maps_key or not gemini_key:
-        st.warning("Please enter both API keys in the sidebar to proceed.")
-    else:
-        with st.spinner("Fetching map layers and running AI model analysis..."):
+    with st.spinner("Fetching map layers and running AI model analysis..."):
+        comp_count, comp_names, comp_coords = get_competitor_details(
+            st.session_state.lat, st.session_state.lng, business_type, radius, google_maps_key
+        )
+        st.session_state.cached_competitor_coords = comp_coords
+        
+        sat_img = get_satellite_image(st.session_state.lat, st.session_state.lng, google_maps_key)
+        
+        if sat_img:
+            report = analyze_feasibility(sat_img, comp_count, comp_names, business_type, radius, gemini_key)
             
-            # Upgraded call pulls down positional arrays alongside metric targets
-            comp_count, comp_names, comp_coords = get_competitor_details(
-                st.session_state.lat, st.session_state.lng, business_type, radius, google_maps_key
-            )
-            
-            # Cache coordinate parameters into state vault for folium layer redraw access
-            st.session_state.cached_competitor_coords = comp_coords
-            
-            sat_img = get_satellite_image(st.session_state.lat, st.session_state.lng, google_maps_key)
-            
-            if sat_img:
-                report = analyze_feasibility(sat_img, comp_count, comp_names, business_type, radius, gemini_key)
-                
-                rating = "Unknown"
-                flag = "None highlighted"
-                for line in report.split("\n"):
-                    if line.startswith("[RATING]:"):
-                        rating = line.replace("[RATING]:", "").strip()
-                    if line.startswith("[FLAG]:"):
-                        flag = line.replace("[FLAG]:", "").strip()
+            rating = "Unknown"
+            flag = "None highlighted"
+            for line in report.split("\n"):
+                if line.startswith("[RATING]:"):
+                    rating = line.replace("[RATING]:", "").strip()
+                if line.startswith("[FLAG]:"):
+                    flag = line.replace("[FLAG]:", "").strip()
 
-                st.session_state.analysis_results = {
-                    "lat": st.session_state.lat,
-                    "lng": st.session_state.lng,
-                    "biz_type": business_type,
-                    "sat_img": sat_img,
-                    "comp_count": comp_count,
-                    "comp_names": comp_names,
-                    "report": report,
-                    "rating": rating,
-                    "flag": flag
-                }
-                st.rerun()
-            else:
-                st.error("Could not generate AI report because the satellite imagery failed to load.")
+            st.session_state.analysis_results = {
+                "lat": st.session_state.lat,
+                "lng": st.session_state.lng,
+                "biz_type": business_type,
+                "sat_img": sat_img,
+                "comp_count": comp_count,
+                "comp_names": comp_names,
+                "report": report,
+                "rating": rating,
+                "flag": flag
+            }
+            st.rerun()
+        else:
+            st.error("Could not generate AI report because the satellite imagery failed to load.")
 
 # ==========================================
 # RENDER CURRENT ANALYSIS & SAVE INTERACTION
